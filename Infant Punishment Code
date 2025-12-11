@@ -1,0 +1,83 @@
+import numpy as np
+from scipy.integrate import solve_ivp
+import matplotlib.pyplot as plt
+
+# ================================
+# MODEL PARAMETERS
+# ================================
+
+# Transgressor dynamics
+t_spread = 0.3        # Avoiders becoming Transgressors after exposure
+p_deterrence = 0.4    # Punishers reducing Transgressors
+c_reduction = 0.35    # Correctors reducing Transgressors
+
+# Punisher dynamics
+p_activation = 0.25   # Punishers increase upon witnessing T
+p_burnout = 0.1       # Punishers lose motivation over time
+
+# Corrector dynamics
+c_training = 0.15     # Avoiders becoming Correctors
+c_burnout = 0.05      # Correctors leaving due to effort
+
+# Avoider drift
+a_to_t = 0.1          # Avoiders becoming transgressors
+a_to_p = 0.05         # Avoiders becoming punishers
+a_to_c = 0.05         # Avoiders becoming correctors
+
+
+# ================================
+# ODE SYSTEM
+# ================================
+def society_model(t, y):
+    T, P, C, A = y   # unpack variables
+
+    # ----- Transgressors -----
+    dT = (t_spread * A * T) - (p_deterrence * P * T) - (c_reduction * C * T)
+
+    # ----- Punishers -----
+    dP = (p_activation * T * A) + (a_to_p * A) - (p_burnout * P)
+
+    # ----- Correctors -----
+    dC = (c_training * A) + (a_to_c * A) - (c_burnout * C)
+
+    # ----- Avoiders -----
+    dA = -(t_spread * A * T) - (p_activation * T * A) \
+         - a_to_p * A - a_to_c * A + (p_deterrence * P * T) + (c_reduction * C * T)
+
+    return [dT, dP, dC, dA]
+
+
+# ================================
+# INITIAL CONDITIONS (adjustable)
+# ================================
+T0 = 0.15   # 15% transgressors
+P0 = 0.10   # 10% punishers
+C0 = 0.15   # 15% correctors
+A0 = 0.60   # 60% avoiders
+
+y0 = [T0, P0, C0, A0]
+
+# Time span
+t_span = (0, 80)
+t_eval = np.linspace(0, 80, 800)
+
+# Solve ODEs
+solution = solve_ivp(society_model, t_span, y0, t_eval=t_eval)
+T, P, C, A = solution.y
+
+
+# ================================
+# PLOT RESULTS
+# ================================
+plt.figure(figsize=(12, 7))
+plt.plot(t_eval, T, label="Transgressors (T)", linewidth=2)
+plt.plot(t_eval, P, label="Punishers (P)", linewidth=2)
+plt.plot(t_eval, C, label="Correctors (C)", linewidth=2)
+plt.plot(t_eval, A, label="Avoiders (A)", linewidth=2)
+
+plt.title("4-Agent Behavioral Model: Punishment vs Correction in Society", fontsize=16)
+plt.xlabel("Time", fontsize=14)
+plt.ylabel("Proportion of Population", fontsize=14)
+plt.legend()
+plt.grid(True)
+plt.show()
