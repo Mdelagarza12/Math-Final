@@ -1,83 +1,312 @@
+# ============================================
+# 4-AGENT BEHAVIORAL MODEL: FINAL PROJECT CODE
+# ============================================
+
 import numpy as np
 from scipy.integrate import solve_ivp
 import matplotlib.pyplot as plt
 
-# ================================
-# MODEL PARAMETERS
-# ================================
-
-# Transgressor dynamics
-t_spread = 0.3        # Avoiders becoming Transgressors after exposure
-p_deterrence = 0.4    # Punishers reducing Transgressors
-c_reduction = 0.35    # Correctors reducing Transgressors
-
-# Punisher dynamics
-p_activation = 0.25   # Punishers increase upon witnessing T
-p_burnout = 0.1       # Punishers lose motivation over time
-
-# Corrector dynamics
-c_training = 0.15     # Avoiders becoming Correctors
-c_burnout = 0.05      # Correctors leaving due to effort
-
-# Avoider drift
-a_to_t = 0.1          # Avoiders becoming transgressors
-a_to_p = 0.05         # Avoiders becoming punishers
-a_to_c = 0.05         # Avoiders becoming correctors
+# Make plots large and readable
+plt.rcParams["figure.figsize"] = (9, 6)
+plt.rcParams["font.size"] = 12
 
 
-# ================================
-# ODE SYSTEM
-# ================================
-def society_model(t, y):
-    T, P, C, A = y   # unpack variables
+# ============================================
+# BASELINE PARAMETERS
+# ============================================
+
+# Spread of transgression (Avoiders -> Transgressors via exposure)
+t_spread     = 0.3   # tau
+
+# Punishment effectiveness (Punishers reducing T)
+p_deterrence = 0.4   # phi
+
+# Correction effectiveness (Correctors reducing T)
+c_reduction  = 0.35  # chi
+
+# Punisher activation by witnessing harm
+p_activation = 0.25  # pi
+
+# Burnout rates
+p_burnout    = 0.10  # kappa_p
+c_training   = 0.15  # sigma  (A -> C via training)
+c_burnout    = 0.05  # kappa_c
+
+# Avoider transitions to P and C
+a_to_p       = 0.05  # rho_p   (A -> P)
+a_to_c       = 0.05  # rho_c   (A -> C)
+
+# Initial condition: T, P, C, A (must sum to 1)
+y0_base = [0.15, 0.10, 0.15, 0.60]
+
+# Time span
+t_span = (0, 80)
+t_eval = np.linspace(t_span[0], t_span[1], 800)
+
+
+# ============================================
+# ODE SYSTEM WITH POPULATION CONSERVATION
+# ============================================
+def society_model(t, y,
+                  t_spread, p_deterrence, c_reduction,
+                  p_activation, p_burnout,
+                  c_training, c_burnout,
+                  a_to_p, a_to_c):
+    """
+    y = [T, P, C, A]
+    T: Transgressors
+    P: Punishers
+    C: Correctors
+    A: Avoiders
+    """
+
+    T, P, C, A = y
 
     # ----- Transgressors -----
+    # grow when avoiders exposed to transgressors
+    # shrink due to punishment and correction
     dT = (t_spread * A * T) - (p_deterrence * P * T) - (c_reduction * C * T)
 
     # ----- Punishers -----
+    # grow when avoiders see harm & step in OR directly convert
+    # shrink due to burnout
     dP = (p_activation * T * A) + (a_to_p * A) - (p_burnout * P)
 
     # ----- Correctors -----
+    # grow via training and recruitment from avoiders
+    # shrink due to burnout
     dC = (c_training * A) + (a_to_c * A) - (c_burnout * C)
 
     # ----- Avoiders -----
+    # lose members to T, P, C
+    # gain members when P and C burn out or when T/C reduce transgression
     dA = -(t_spread * A * T) - (p_activation * T * A) \
-         - a_to_p * A - a_to_c * A + (p_deterrence * P * T) + (c_reduction * C * T)
+         - a_to_p * A - a_to_c * A \
+         + (p_deterrence * P * T) + (c_reduction * C * T) \
+         + p_burnout * P + c_burnout * C
 
     return [dT, dP, dC, dA]
 
 
-# ================================
-# INITIAL CONDITIONS (adjustable)
-# ================================
-T0 = 0.15   # 15% transgressors
-P0 = 0.10   # 10% punishers
-C0 = 0.15   # 15% correctors
-A0 = 0.60   # 60% avoiders
+# ============================================
+# HELPER: RUN SIMULATION
+# ============================================
+def run_simulation(y0,
+                   t_spread=t_spread,
+                   p_deterrence=p_deterrence,
+                   c_reduction=c_reduction,
+                   p_activation=p_activation,
+                   p_burnout=p_burnout,
+                   c_training=c_training,
+                   c_burnout=c_burnout,
+                   a_to_p=a_to_p,
+                   a_to_c=a_to_c):
 
-y0 = [T0, P0, C0, A0]
+    sol = solve_ivp(
+        society_model,
+        t_span,
+        y0,
+        t_eval=t_eval,
+        args=(t_spread, p_deterrence, c_reduction,
+              p_activation, p_burnout,
+              c_training, c_burnout,
+              a_to_p, a_to_c)
+    )
+    T, P, C, A = sol.y
+    total = T + P + C + A   # should stay ~1
+    return sol.t, T, P, C, A, total
 
-# Time span
-t_span = (0, 80)
-t_eval = np.linspace(0, 80, 800)
 
-# Solve ODEs
-solution = solve_ivp(society_model, t_span, y0, t_eval=t_eval)
-T, P, C, A = solution.y
+# ============================================
+# 1. BASELINE SIMULATION
+# ============================================
+t, T, P, C, A, total = run_simulation(y0_base)
 
+print("Baseline: min(total), max(total) =", total.min(), total.max())
 
-# ================================
-# PLOT RESULTS
-# ================================
-plt.figure(figsize=(12, 7))
-plt.plot(t_eval, T, label="Transgressors (T)", linewidth=2)
-plt.plot(t_eval, P, label="Punishers (P)", linewidth=2)
-plt.plot(t_eval, C, label="Correctors (C)", linewidth=2)
-plt.plot(t_eval, A, label="Avoiders (A)", linewidth=2)
-
-plt.title("4-Agent Behavioral Model: Punishment vs Correction in Society", fontsize=16)
-plt.xlabel("Time", fontsize=14)
-plt.ylabel("Proportion of Population", fontsize=14)
-plt.legend()
+plt.figure()
+plt.plot(t, T, label="Transgressors (T)")
+plt.plot(t, P, label="Punishers (P)")
+plt.plot(t, C, label="Correctors (C)")
+plt.plot(t, A, label="Avoiders (A)")
+plt.title("4-Agent Behavioral Model: Punishment vs Correction in Society")
+plt.xlabel("Time")
+plt.ylabel("Proportion of Population")
+plt.ylim(0, 1)
 plt.grid(True)
+plt.legend()
+plt.tight_layout()
+plt.show()
+
+print("Final values (t = {:.1f}):".format(t[-1]))
+print("  T =", T[-1])
+print("  P =", P[-1])
+print("  C =", C[-1])
+print("  A =", A[-1])
+
+
+# ============================================
+# 2. SCENARIO SIMULATIONS
+# ============================================
+
+def plot_scenario(title, y0, **param_overrides):
+    """Run and plot a scenario with modified parameters."""
+    params = dict(
+        t_spread=t_spread,
+        p_deterrence=p_deterrence,
+        c_reduction=c_reduction,
+        p_activation=p_activation,
+        p_burnout=p_burnout,
+        c_training=c_training,
+        c_burnout=c_burnout,
+        a_to_p=a_to_p,
+        a_to_c=a_to_c
+    )
+    params.update(param_overrides)
+
+    t, T, P, C, A, total = run_simulation(y0, **params)
+
+    plt.figure()
+    plt.plot(t, T, label="Transgressors (T)")
+    plt.plot(t, P, label="Punishers (P)")
+    plt.plot(t, C, label="Correctors (C)")
+    plt.plot(t, A, label="Avoiders (A)")
+    plt.title(title)
+    plt.xlabel("Time")
+    plt.ylabel("Proportion of Population")
+    plt.ylim(0, 1)
+    plt.grid(True)
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+
+    print(title)
+    print("  min(total), max(total) =", total.min(), total.max())
+    print("  Final T, P, C, A =", T[-1], P[-1], C[-1], A[-1])
+    print("-" * 50)
+
+
+# --- Scenario 1: Punishment-dominated (high phi, low chi)
+plot_scenario(
+    "Scenario 1: Punishment-Dominated Society",
+    y0_base,
+    p_deterrence=0.8,   # higher punishment effectiveness
+    c_reduction=0.10    # weaker correction
+)
+
+# --- Scenario 2: Correction-dominated (low phi, high chi)
+plot_scenario(
+    "Scenario 2: Correction-Dominated Society",
+    y0_base,
+    p_deterrence=0.10,  # weaker punishment
+    c_reduction=0.8     # stronger correction
+)
+
+# --- Scenario 3: Mixed society (moderate phi, moderate chi)
+plot_scenario(
+    "Scenario 3: Mixed Punishment + Correction",
+    y0_base,
+    p_deterrence=0.4,   # moderate
+    c_reduction=0.5     # moderate-high
+)
+
+# --- Scenario 4: No intervention (P = 0, C = 0)
+# Here we force P = C = 0 by starting them at 0 and making them not grow.
+plot_scenario(
+    "Scenario 4: No Intervention (A and T dominate)",
+    y0=[0.15, 0.0, 0.0, 0.85],
+    p_activation=0.0,
+    a_to_p=0.0,
+    c_training=0.0,
+    a_to_c=0.0,
+    p_deterrence=0.0,
+    c_reduction=0.0
+)
+
+
+# ============================================
+# 3. PARAMETER SWEEPS (phi, chi, tau)
+# ============================================
+
+def sweep_parameter(param_name, values, y0=y0_base):
+    """
+    Sweep one parameter and record final T, P, C, A.
+    param_name: 'phi', 'chi', or 'tau'
+    """
+    final_T = []
+    final_P = []
+    final_C = []
+    final_A = []
+
+    for val in values:
+        kwargs = {}
+        if param_name == 'phi':
+            kwargs['p_deterrence'] = val
+        elif param_name == 'chi':
+            kwargs['c_reduction']  = val
+        elif param_name == 'tau':
+            kwargs['t_spread']     = val
+        else:
+            raise ValueError("Unknown parameter")
+
+        t, T, P, C, A, total = run_simulation(y0, **kwargs)
+        final_T.append(T[-1])
+        final_P.append(P[-1])
+        final_C.append(C[-1])
+        final_A.append(A[-1])
+
+    return np.array(final_T), np.array(final_P), np.array(final_C), np.array(final_A)
+
+
+# --- Sweep punishment effectiveness phi (p_deterrence)
+phi_values = np.linspace(0.05, 0.9, 15)
+T_phi, P_phi, C_phi, A_phi = sweep_parameter('phi', phi_values)
+
+plt.figure()
+plt.plot(phi_values, T_phi, label="Final T")
+plt.plot(phi_values, P_phi, label="Final P")
+plt.plot(phi_values, C_phi, label="Final C")
+plt.plot(phi_values, A_phi, label="Final A")
+plt.title("Parameter Sweep: Punishment Effectiveness φ")
+plt.xlabel("φ (p_deterrence)")
+plt.ylabel("Final Proportion at t = 80")
+plt.grid(True)
+plt.legend()
+plt.tight_layout()
+plt.show()
+
+
+# --- Sweep correction effectiveness chi (c_reduction)
+chi_values = np.linspace(0.05, 0.9, 15)
+T_chi, P_chi, C_chi, A_chi = sweep_parameter('chi', chi_values)
+
+plt.figure()
+plt.plot(chi_values, T_chi, label="Final T")
+plt.plot(chi_values, P_chi, label="Final P")
+plt.plot(chi_values, C_chi, label="Final C")
+plt.plot(chi_values, A_chi, label="Final A")
+plt.title("Parameter Sweep: Correction Effectiveness χ")
+plt.xlabel("χ (c_reduction)")
+plt.ylabel("Final Proportion at t = 80")
+plt.grid(True)
+plt.legend()
+plt.tight_layout()
+plt.show()
+
+
+# --- Sweep avoider conversion to transgression tau (t_spread)
+tau_values = np.linspace(0.05, 0.9, 15)
+T_tau, P_tau, C_tau, A_tau = sweep_parameter('tau', tau_values)
+
+plt.figure()
+plt.plot(tau_values, T_tau, label="Final T")
+plt.plot(tau_values, P_tau, label="Final P")
+plt.plot(tau_values, C_tau, label="Final C")
+plt.plot(tau_values, A_tau, label="Final A")
+plt.title("Parameter Sweep: Avoider Conversion τ")
+plt.xlabel("τ (t_spread)")
+plt.ylabel("Final Proportion at t = 80")
+plt.grid(True)
+plt.legend()
+plt.tight_layout()
 plt.show()
